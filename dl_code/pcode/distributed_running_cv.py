@@ -8,11 +8,7 @@ import torch.distributed as dist
 from pcode.create_dataset import define_dataset, load_data_batch, _define_cv_dataset
 
 from pcode.utils.checkpoint import save_to_checkpoint
-from pcode.utils.logging import (
-    display_training_stat,
-    display_test_stat,
-    dispaly_best_test_stat,
-)
+from pcode.utils.logging import display_training_stat, display_test_stat, dispaly_best_test_stat
 from pcode.utils.stat_tracker import RuntimeTracker
 import pcode.utils.error_handler as error_handler
 import pcode.utils.auxiliary as auxiliary
@@ -21,14 +17,12 @@ import pcode.utils.auxiliary as auxiliary
 
 
 def train_and_validate(
-    conf, model, criterion, scheduler, optimizer, metrics, data_loader
+    conf, model, criterion, scheduler, optimizer, metrics, data_loader, log_progress
 ):
     print("=>>>> start training and validation.\n")
 
     # define runtime stat tracker and start the training.
-    tracker_tr = RuntimeTracker(
-        metrics_to_track=metrics.metric_names, on_cuda=conf.graph.on_cuda
-    )
+    tracker_tr = RuntimeTracker(metrics_to_track=metrics.metric_names, on_cuda=conf.graph.on_cuda)
 
     # get the timer.
     timer = conf.timer
@@ -42,6 +36,14 @@ def train_and_validate(
         for _input, _target in data_loader["train_loader"]:
             model.train()
             scheduler.step(optimizer)
+
+            # print(
+            #     scheduler.epoch_,
+            #     torch.distributed.get_rank(),
+            #     len(_input),
+            #     optimizer.param_groups[0]["lr"],
+            # )
+            # continue
 
             # load data
             with timer("load_data", epoch=scheduler.epoch_):
@@ -59,35 +61,27 @@ def train_and_validate(
                 n_bits_to_transmit = optimizer.step(timer=timer, scheduler=scheduler)
 
             # display the logging info.
-            display_training_stat(conf, scheduler, tracker_tr, n_bits_to_transmit)
+            # display_training_stat(conf, scheduler, tracker_tr, n_bits_to_transmit)
 
             # finish one epoch training and to decide if we want to val our model.
             if scheduler.epoch_ % 1 == 0:
-                if tracker_tr.stat["loss"].avg > 1e3 or np.isnan(
-                    tracker_tr.stat["loss"].avg
-                ):
+                log_progress(scheduler.epoch_ / conf.num_epochs)
+                if tracker_tr.stat["loss"].avg > 1e3 or np.isnan(tracker_tr.stat["loss"].avg):
                     print("\nThe process diverges!!!!!Early stop it.")
                     error_handler.abort()
 
                 # each worker finish one epoch training.
-                do_validate(
-                    conf, model, optimizer, criterion, scheduler, metrics, data_loader
-                )
+                do_validate(conf, model, optimizer, criterion, scheduler, metrics, data_loader)
 
                 # refresh the logging cache at the begining of each epoch.
                 tracker_tr.reset()
 
                 # evaluate (and only inference) on the whole training loader.
-                if (
-                    conf.evaluate_consensus or scheduler.is_stop()
-                ) and not conf.train_fast:
+                if (conf.evaluate_consensus or scheduler.is_stop()) and not conf.train_fast:
                     # prepare the dataloader for the consensus evaluation.
                     _data_loader = {
                         "val_loader": _define_cv_dataset(
-                            conf,
-                            partition_type=None,
-                            dataset_type="train",
-                            force_shuffle=True,
+                            conf, partition_type=None, dataset_type="train", force_shuffle=True
                         )
                     }
 
@@ -108,9 +102,7 @@ def train_and_validate(
                     # evaluate on the averaged model.
                     conf.logger.log("eval the averaged model on full training data.")
                     copied_model = copy.deepcopy(
-                        model.module
-                        if "DataParallel" == model.__class__.__name__
-                        else model
+                        model.module if "DataParallel" == model.__class__.__name__ else model
                     )
                     optimizer.world_aggregator.agg_model(copied_model, op="avg")
                     validate(
@@ -129,10 +121,6 @@ def train_and_validate(
                 if scheduler.is_stop():
                     # save json.
                     conf.logger.save_json()
-
-                    # temporarily hack the exit parallelchoco
-                    if optimizer.__class__.__name__ == "ParallelCHOCO":
-                        error_handler.abort()
                     return
 
             # display tracking time.
@@ -165,9 +153,7 @@ def do_validate(conf, model, optimizer, criterion, scheduler, metrics, data_load
     """Evaluate the model on the test dataset and save to the checkpoint."""
     # wait until the whole group enters this function, and then evaluate.
     print("Enter validation phase.")
-    performance = validate(
-        conf, model, optimizer, criterion, scheduler, metrics, data_loader
-    )
+    performance = validate(conf, model, optimizer, criterion, scheduler, metrics, data_loader)
 
     # remember best performance and display the val info.
     scheduler.best_tracker.update(performance[0], scheduler.epoch_)

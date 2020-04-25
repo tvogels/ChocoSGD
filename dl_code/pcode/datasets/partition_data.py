@@ -2,7 +2,6 @@
 import random
 
 import torch
-import torch.distributed as dist
 
 
 class Partition(object):
@@ -55,16 +54,12 @@ class DataPartitioner(object):
                 random.shuffle(indices)
             elif self.partition_type == "sorted":
                 # it will sort the indices based on the data label.
-                indices = [
-                    i[0]
-                    for i in sorted(enumerate(self.data.targets), key=lambda x: x[1])
-                ]
+                indices = [i[0] for i in sorted(enumerate(self.data.targets), key=lambda x: x[1])]
 
         # sync the indices over nodes.
         indices = torch.IntTensor(indices)
         indices = indices.cuda() if self.conf.backend == "nccl" else indices
-        group = dist.new_group(self.conf.graph.ranks)
-        dist.broadcast(indices, src=0, group=group)
+        torch.distributed.broadcast(indices, src=0)
         indices = indices.cpu() if self.conf.backend == "nccl" else indices
         return list(indices)
 

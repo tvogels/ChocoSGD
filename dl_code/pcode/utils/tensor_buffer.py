@@ -38,4 +38,3 @@ class TensorBuffer:
     def unpack(self, tensors):
         for tensor, entry in zip(tensors, self):
             tensor.data[:] = entry
-

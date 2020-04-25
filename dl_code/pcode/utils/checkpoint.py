@@ -3,6 +3,7 @@ import gc
 import shutil
 import time
 from os.path import join, isfile
+from copy import deepcopy
 
 import torch
 
@@ -22,9 +23,7 @@ def get_checkpoint_folder_name(conf):
         comm_info = "{}-{}_".format(conf.comm_op, conf.compress_ratio)
         comm_info += "warmup_epochs-{}".format(conf.compress_warmup_epochs)
         comm_info += "_mask_momentum" if conf.mask_momentum else ""
-        comm_info += (
-            "_clip_grad-{}".format(conf.clip_grad_val) if conf.clip_grad else ""
-        )
+        comm_info += "_clip_grad-{}".format(conf.clip_grad_val) if conf.clip_grad else ""
     elif conf.comm_op == "quantize_qsgd":
         comm_info = "{}-{}_".format(conf.comm_op, conf.quantize_level)
     elif conf.comm_op == "sign":
@@ -58,13 +57,7 @@ def get_checkpoint_folder_name(conf):
 
 def init_checkpoint(conf):
     # init checkpoint dir.
-    conf.checkpoint_root = join(
-        conf.checkpoint,
-        conf.data,
-        conf.arch,
-        conf.experiment if conf.experiment is not None else "",
-        conf.timestamp,
-    )
+    conf.checkpoint_root = join(conf.checkpoint, conf.data, conf.arch, conf.timestamp)
     conf.checkpoint_dir = join(conf.checkpoint_root, str(conf.graph.rank))
     if conf.save_some_models is not None:
         conf.save_some_models = conf.save_some_models.split(",")
@@ -82,7 +75,10 @@ def _save_to_checkpoint(state, dirname, filename):
 def save_arguments(conf):
     # save the configure file to the checkpoint.
     if conf.graph.rank == 0:
-        write_pickle(conf, path=join(conf.checkpoint_root, "arguments.pickle"))
+        safeconf = deepcopy(conf)
+        safeconf.logger.log_metric = None
+        safeconf.timer.log_fn = safeconf.timer._default_log_fn
+        write_pickle(safeconf, path=join(conf.checkpoint_root, "arguments.pickle"))
 
 
 def save_to_checkpoint(conf, state, is_best, dirname, filename, save_all=False):
@@ -93,8 +89,7 @@ def save_to_checkpoint(conf, state, is_best, dirname, filename, save_all=False):
         shutil.copyfile(checkpoint_path, best_model_path)
     if save_all:
         shutil.copyfile(
-            checkpoint_path,
-            join(dirname, "checkpoint_epoch_%s.pth.tar" % state["current_epoch"]),
+            checkpoint_path, join(dirname, "checkpoint_epoch_%s.pth.tar" % state["current_epoch"])
         )
     elif conf.save_some_models is not None:
         if str(state["current_epoch"]) in conf.save_some_models:
@@ -113,16 +108,12 @@ def maybe_resume_from_checkpoint(conf, model, optimizer, scheduler):
             # reload model from the latest checkpoint.
             checkpoint_index = ""
         checkpoint_path = join(
-            conf.resume,
-            str(conf.graph.rank),
-            "checkpoint{}.pth.tar".format(checkpoint_index),
+            conf.resume, str(conf.graph.rank), "checkpoint{}.pth.tar".format(checkpoint_index)
         )
         print("try to load previous model from the path:{}".format(checkpoint_path))
 
         if isfile(checkpoint_path):
-            print(
-                "=> loading checkpoint {} for {}".format(conf.resume, conf.graph.rank)
-            )
+            print("=> loading checkpoint {} for {}".format(conf.resume, conf.graph.rank))
 
             # get checkpoint.
             checkpoint = torch.load(checkpoint_path, map_location="cpu")

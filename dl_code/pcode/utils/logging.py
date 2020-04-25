@@ -33,9 +33,7 @@ class Logger:
         self.values.append({"measurement": name, **values, **tags})
 
         if display:
-            print(
-                "{name}: {values} ({tags})".format(name=name, values=values, tags=tags)
-            )
+            print("{name}: {values} ({tags})".format(name=name, values=values, tags=tags))
 
     def log(self, value):
         content = time.strftime("%Y-%m-%d %H:%M:%S") + "\t" + value
@@ -57,9 +55,7 @@ class Logger:
 
     def redirect_new_json(self):
         """get the number of existing json files under the current folder."""
-        existing_json_files = [
-            file for file in os.listdir(self.file_folder) if "json" in file
-        ]
+        existing_json_files = [file for file in os.listdir(self.file_folder) if "json" in file]
         self.file_json = os.path.join(
             self.file_folder, "log-{}.json".format(len(existing_json_files) + 1)
         )
@@ -79,66 +75,52 @@ def display_args(conf):
                 conf.graph.device,
             )
         )
-        for name in [
-            "n_nodes",
-            "world",
-            "rank",
-            "device",
-            "on_cuda",
-            "get_neighborhood",
-        ]:
+        for name in ["n_nodes", "world", "rank", "device", "on_cuda", "get_neighborhood"]:
             print("\t{}: {}".format(name, getattr(conf.graph, name)))
         print("\n\n")
 
 
 def display_training_stat(conf, scheduler, tracker, n_bits_to_transmit):
-    current_time = time.strftime("%Y-%m-%d %H:%M:%S")
-
-    # display the runtime training information.
-    conf.logger.log_metric(
-        name="runtime",
-        values={
-            "time": current_time,
-            "rank": conf.graph.rank,
-            "epoch": scheduler.epoch_,
-            "local_index": scheduler.local_index,
-            "n_bits_to_transmit": n_bits_to_transmit / 8 / (2 ** 20),
-            **tracker(),
-        },
-        tags={"split": "train"},
-        display=True,
-    )
+    for key, value in tracker().items():
+        if key == "top1":
+            key = "accuracy"
+            value = value / 100
+        elif key == "top5":
+            continue  # not interested in this
+        conf.logger.log_metric(
+            name=key,
+            values={
+                "epoch": scheduler.epoch_,
+                "local_index": scheduler.local_index,
+                "n_bits_to_transmit": n_bits_to_transmit / 8 / (2 ** 20),
+                "value": value,
+            },
+            tags={"split": "train"},
+            display=False,
+        )
 
 
 def display_test_stat(conf, scheduler, tracker, label="local"):
-    current_time = time.strftime("%Y-%m-%d %H:%M:%S")
-
-    # display the runtime training information.
-    conf.logger.log_metric(
-        name="runtime",
-        values={
-            "time": current_time,
-            "rank": conf.graph.rank,
-            "epoch": scheduler.epoch_,
-            **tracker(),
-        },
-        tags={"split": "test", "type": label},
-        display=True,
-    )
-    conf.logger.save_json()
+    for key, value in tracker().items():
+        if key == "top1":
+            key = "accuracy"
+            value = value / 100
+        elif key == "top5":
+            continue  # not interested in this
+        conf.logger.log_metric(
+            name=key,
+            values={"epoch": scheduler.epoch_, "value": value},
+            tags={"split": "test", "type": label},
+            display=False,
+        )
 
 
 def dispaly_best_test_stat(conf, scheduler):
     current_time = time.strftime("%Y-%m-%d %H:%M:%S")
 
     conf.logger.log_metric(
-        name="runtime",
-        values={
-            "time": current_time,
-            "rank": conf.graph.rank,
-            "epoch": scheduler.epoch_,
-            "best_perf": scheduler.best_tracker.best_perf,
-        },
+        name="best_performance",
+        values={"epoch": scheduler.epoch_, "value": scheduler.best_tracker.best_perf},
         tags={"split": "test", "type": "local_model_avg"},
         display=False,
     )
