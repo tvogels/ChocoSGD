@@ -3,6 +3,7 @@ from pcode.optim.sgd import SGD
 
 from pcode.optim.dgc import DGC
 from pcode.optim.parallel_choco import ParallelCHOCO
+from pcode.optim.adapter import Adapter
 from pcode.optim.parallel_choco_v import ParallelCHOCO_V
 from pcode.optim.ef_sign_sgd import EF_SignSGD
 from pcode.optim.dcd_psgd import DCD_PSGD
@@ -34,6 +35,10 @@ def define_optimizer(conf, model):
         optim_class = ECD_PSGD
     elif conf.optimizer == "parallel_choco":
         optim_class = ParallelCHOCO
+    elif conf.optimizer.startswith("thijs-"):
+        conf.optimizer = conf.optimizer.replace("thijs-", "")
+        conf.optimizer_diffusion_rate = conf.consensus_stepsize
+        optim_class = Adapter
     elif conf.optimizer == "parallel_choco_v":
         optim_class = ParallelCHOCO_V
     elif conf.optimizer == "ef_sign_sgd":
@@ -44,9 +49,5 @@ def define_optimizer(conf, model):
         raise NotImplementedError
 
     return optim_class(
-        params,
-        lr=conf.lr,
-        momentum=conf.momentum_factor,
-        nesterov=conf.use_nesterov,
-        conf=conf,
+        params, lr=conf.lr, momentum=conf.momentum_factor, nesterov=conf.use_nesterov, conf=conf
     )

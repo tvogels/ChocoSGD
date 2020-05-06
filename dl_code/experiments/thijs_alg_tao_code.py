@@ -37,7 +37,7 @@ script = "main.py"
 description = """
 Running Tao's code for ResNet20
 """.strip()
-base_config = {}
+base_config = {"optimizer": "thijs-choco", "optimizer_compressor": "sign-and-norm"}
 n_workers = 8
 
 
@@ -71,5 +71,5 @@ def schedule(name, config, skip_existing=True):
 
 
 # All-reduce baseline
-for seed in [2, 1]:
-    schedule(f"choco-{seed}", dict(manual_seed=seed), skip_existing=False)
+for seed in [5, 4, 3]:
+    schedule(f"thijs-choco-{seed}", dict(manual_seed=seed), skip_existing=False)

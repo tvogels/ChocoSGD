@@ -5,11 +5,7 @@ import numpy as np
 import torch
 
 from pcode.utils.checkpoint import save_to_checkpoint
-from pcode.utils.logging import (
-    display_training_stat,
-    display_test_stat,
-    dispaly_best_test_stat,
-)
+from pcode.utils.logging import display_training_stat, display_test_stat, dispaly_best_test_stat
 from pcode.utils.stat_tracker import RuntimeTracker
 from pcode.utils.timer import Timer
 from pcode.utils.auxiliary import get_model_difference
@@ -21,7 +17,7 @@ from pcode.create_dataset import load_data_batch
 
 
 def train_and_validate(
-    conf, model, criterion, scheduler, optimizer, metrics, data_loader
+    conf, model, criterion, scheduler, optimizer, metrics, data_loader, log_progress
 ):
     print("=>>>> start training and validation.\n")
     assert (
@@ -59,16 +55,10 @@ def train_and_validate(
             # load data
             with timer("load_data", epoch=scheduler.epoch_):
                 _input = batch.text[
-                    :,
-                    conf.graph.rank
-                    * conf.batch_size : (conf.graph.rank + 1)
-                    * conf.batch_size,
+                    :, conf.graph.rank * conf.batch_size : (conf.graph.rank + 1) * conf.batch_size
                 ]
                 _target = batch.target[
-                    :,
-                    conf.graph.rank
-                    * conf.batch_size : (conf.graph.rank + 1)
-                    * conf.batch_size,
+                    :, conf.graph.rank * conf.batch_size : (conf.graph.rank + 1) * conf.batch_size
                 ]
                 _input, _target = load_data_batch(conf, _input, _target)
 
@@ -76,20 +66,10 @@ def train_and_validate(
             with timer("forward_pass", epoch=scheduler.epoch_):
                 optimizer.zero_grad()
                 loss, _hidden = inference(
-                    conf,
-                    model,
-                    criterion,
-                    metrics,
-                    _input,
-                    _target,
-                    _hidden,
-                    tracker_tr,
+                    conf, model, criterion, metrics, _input, _target, _hidden, tracker_tr
                 )
-            print(conf.graph.rank, "finish inference", idx)
-
             with timer("backward_pass", epoch=scheduler.epoch_):
                 loss.backward()
-            print(conf.graph.rank, "finish backward", idx)
 
             with timer("sync_complete", epoch=scheduler.epoch_):
                 # `clip_grad_norm` helps prevent the exploding gradient problem in RNNs / LSTMs.
@@ -97,20 +77,17 @@ def train_and_validate(
                 n_bits_to_transmit = optimizer.step(timer=timer)
 
             # display the logging info.
-            display_training_stat(conf, scheduler, tracker_tr, n_bits_to_transmit)
+            # display_training_stat(conf, scheduler, tracker_tr, n_bits_to_transmit)
 
             # finish one epoch training and to decide if we want to val our model.
             if scheduler.epoch_ % 1 == 0:
-                if tracker_tr.stat["loss"].avg > 1e3 or np.isnan(
-                    tracker_tr.stat["loss"].avg
-                ):
+                log_progress(scheduler.epoch_ / conf.num_epochs)
+                if tracker_tr.stat["loss"].avg > 1e3 or np.isnan(tracker_tr.stat["loss"].avg):
                     print("\nThe process diverges!!!!!Early stop it.")
                     error_handler.abort()
 
                 # each worker finish one epoch training.
-                do_validate(
-                    conf, model, optimizer, criterion, scheduler, metrics, data_loader
-                )
+                do_validate(conf, model, optimizer, criterion, scheduler, metrics, data_loader)
 
                 # refresh the logging cache at the begining of each epoch.
                 tracker_tr.reset()
@@ -142,9 +119,7 @@ def inference(conf, model, criterion, metrics, _input, _target, _hidden, tracker
 def do_validate(conf, model, optimizer, criterion, scheduler, metrics, data_loader):
     """Evaluate the model on the test dataset and save to the checkpoint."""
     # wait until the whole group enters this function, and then evaluate.
-    performance = validate(
-        conf, model, optimizer, criterion, scheduler, metrics, data_loader
-    )
+    performance = validate(conf, model, optimizer, criterion, scheduler, metrics, data_loader)
 
     # remember best performance and display the val info.
     scheduler.best_tracker.update(performance[0], scheduler.epoch_)
@@ -199,14 +174,7 @@ def validate(conf, model, optimizer, criterion, scheduler, metrics, data_loader)
 
             with torch.no_grad():
                 _, _hidden = inference(
-                    conf,
-                    _model,
-                    criterion,
-                    metrics,
-                    _input,
-                    _target,
-                    _hidden,
-                    tracker_te,
+                    conf, _model, criterion, metrics, _input, _target, _hidden, tracker_te
                 )
 
         # display the test stat.
