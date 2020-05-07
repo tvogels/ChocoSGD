@@ -198,7 +198,9 @@ class ParallelCHOCO(Optimizer):
             while not self.gossiped_dist_model_flag.is_set():
                 pass
             self.gossiped_dist_model_flag.clear()
-        return self.n_bits.item()
+
+        num_neighbors = len(self.neighbors_info) - 1
+        return self.n_bits.item() * num_neighbors
 
     def __del__(self):
         self.sync_queue.close()

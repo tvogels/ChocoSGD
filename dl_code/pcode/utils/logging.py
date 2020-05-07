@@ -80,7 +80,7 @@ def display_args(conf):
         print("\n\n")
 
 
-def display_training_stat(conf, scheduler, tracker, n_bits_to_transmit):
+def display_training_stat(conf, scheduler, tracker, bits_sent):
     for key, value in tracker().items():
         if key == "top1":
             key = "accuracy"
@@ -92,7 +92,7 @@ def display_training_stat(conf, scheduler, tracker, n_bits_to_transmit):
             values={
                 "epoch": scheduler.epoch_,
                 "local_index": scheduler.local_index,
-                "n_bits_to_transmit": n_bits_to_transmit / 8 / (2 ** 20),
+                "bits_sent": bits_sent,
                 "value": value,
             },
             tags={"split": "train"},
@@ -100,7 +100,7 @@ def display_training_stat(conf, scheduler, tracker, n_bits_to_transmit):
         )
 
 
-def display_test_stat(conf, scheduler, tracker, label="local"):
+def display_test_stat(conf, scheduler, tracker, label="local", bits=0):
     for key, value in tracker().items():
         if key == "top1":
             key = "accuracy"
@@ -109,7 +109,7 @@ def display_test_stat(conf, scheduler, tracker, label="local"):
             continue  # not interested in this
         conf.logger.log_metric(
             name=key,
-            values={"epoch": scheduler.epoch_, "value": value},
+            values={"epoch": scheduler.epoch_, "value": value, "bits_sent": bits},
             tags={"split": "test", "type": label},
             display=False,
         )

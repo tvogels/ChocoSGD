@@ -50,10 +50,11 @@ base_config = {
     "data": "wikitext2",
     "pin_memory": True,
     "batch_size": 32,
-    "base_batch_size": 24,
+    "base_batch_size": 28.8,
     "num_workers": 1,
-    "eval_freq": 1,
-    "num_epochs": 300,
+    "eval_freq": 4,
+    "num_epochs": 200,
+    "consensus_stepsize": 0.6,
     "partition_data": "random",
     "reshuffle_per_epoch": False,
     "stop_criteria": "epoch",
@@ -61,6 +62,8 @@ base_config = {
     "n_sub_process": 1,
     "world": "0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1",
     "on_cuda": True,
+    "use_ipc": False,
+    "comm_device": "cuda",
     "lr": 2.5,
     "lr_scaleup": True,
     "lr_scaleup_factor": "graph",
@@ -112,13 +115,36 @@ def schedule(name, config, skip_existing=True):
 # All-reduce baseline
 for seed in [1]:
     schedule(
-        f"power-gossip-rank1",
+        f"dpsgd",
         dict(
             manual_seed=seed,
-            optimizer="thijs-power-gossip",
+            optimizer="thijs-dpsgd",
             optimizer_rank=1,
             optimizer_warm_start=True,
             optimizer_num_iterations=1,
+            base_batch_size=28.8,
         ),
         skip_existing=False,
     )
+    schedule(
+        f"parallel-choco-sign",
+        dict(
+            manual_seed=seed,
+            optimizer="parallel_choco_v",
+            base_batch_size=28.8,
+            consensus_stepsize=0.6,
+        ),
+    )
+    for i in [1, 2, 4, 8]:
+        schedule(
+            f"power-gossip-{i}",
+            dict(
+                manual_seed=seed,
+                optimizer="thijs-power-gossip",
+                optimizer_rank=1,
+                optimizer_warm_start=True,
+                optimizer_num_iterations=i,
+                base_batch_size=28.8,
+            ),
+            skip_existing=False,
+        )

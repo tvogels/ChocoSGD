@@ -53,16 +53,12 @@ class ParallelCHOCO_V(Optimizer):
         self.world_aggregator = comm.get_aggregators(
             cur_rank=self.rank,
             world=conf.graph.ranks,
-            neighbors_info=dict(
-                (rank, 1.0 / conf.graph.n_nodes) for rank in conf.graph.ranks
-            ),
+            neighbors_info=dict((rank, 1.0 / conf.graph.n_nodes) for rank in conf.graph.ranks),
             aggregator_type="centralized",
         )
 
         # define param names and init model_hat.
-        self.param_names = list(
-            enumerate([group["name"] for group in self.param_groups])
-        )
+        self.param_names = list(enumerate([group["name"] for group in self.param_groups]))
         self.init_neighbor_hat_params()
         self.consensus_stepsize = conf.consensus_stepsize
 
@@ -84,9 +80,7 @@ class ParallelCHOCO_V(Optimizer):
         self.n_bits = 0
 
     def init_neighbor_hat_params(self):
-        params, self.shapes = comm.get_data(
-            self.param_groups, self.param_names, is_get_grad=False
-        )
+        params, self.shapes = comm.get_data(self.param_groups, self.param_names, is_get_grad=False)
         flatten_params = TensorBuffer(params)
         flatten_params.buffer = torch.zeros_like(flatten_params.buffer)
 
@@ -104,9 +98,7 @@ class ParallelCHOCO_V(Optimizer):
     def step(self, closure=None, **kargs):
         # Apply the gradients with the weight decay and momentum.
         with kargs["timer"]("sync.apply_grad", epoch=self.conf.epoch_):
-            utils.apply_gradient(
-                self.param_groups, self.state, apply_grad_to_model=True
-            )
+            utils.apply_gradient(self.param_groups, self.state, apply_grad_to_model=True)
 
         with kargs["timer"]("sync.finish_sync", epoch=self.conf.epoch_):
             utils.join_thread(self.helper_thread)
@@ -152,7 +144,9 @@ class ParallelCHOCO_V(Optimizer):
             self.helper_thread.start()
             if self.conf.epoch_ % 1 == 0:
                 utils.join_thread(self.helper_thread)
-        return self.n_bits
+
+        num_neighbors = len(self.neighbors_info) - 1
+        return self.n_bits * num_neighbors
 
 
 """the entry for CHOCOCompressor."""
@@ -233,10 +227,7 @@ class CHOCOSparsificationCompressor(object):
             sync_buffer["flatten_params"], sync_buffer["flatten_hat_params"]
         ):
             _selected_values, _selected_indices = self.compressor_fn.compress(
-                half_param - hat_param,
-                self.comm_op,
-                self.compress_ratio,
-                self.is_biased,
+                half_param - hat_param, self.comm_op, self.compress_ratio, self.is_biased
             )
             selected_values.append(_selected_values)
             selected_indices.append(_selected_indices)
@@ -289,9 +280,7 @@ class CHOCOSparsificationCompressor(object):
         message_size = int(sync_buffer["sycned_message_size"] / 2)
 
         for rank, weight in neighbors_info.items():
-            hat_params = neighbor_hat_params[
-                rank if rank in neighbor_hat_params else "memory"
-            ]
+            hat_params = neighbor_hat_params[rank if rank in neighbor_hat_params else "memory"]
             hat_params_memory = neighbor_hat_params["memory"]
 
             # recover values/indices to the correct device.
@@ -319,9 +308,7 @@ class CHOCOSparsificationCompressor(object):
         original_shapes,
     ):
         # recover the message and the corresponding device.
-        _message = comm.recover_device(
-            synced_message[_rank], device=_hat_params.buffer.device
-        )
+        _message = comm.recover_device(synced_message[_rank], device=_hat_params.buffer.device)
         values = _message[:sycned_message_size]
         indices = _message[sycned_message_size:]
 
@@ -379,10 +366,7 @@ class CHOCOQuantizationCompressor(object):
             sync_buffer["flatten_params"], sync_buffer["flatten_hat_params"]
         ):
             _quantized_values = self.compressor_fn.compress(
-                half_param - hat_param,
-                self.comm_op,
-                self.quantize_level,
-                self.is_biased,
+                half_param - hat_param, self.comm_op, self.quantize_level, self.is_biased
             )
             quantized_values.append(_quantized_values)
 
@@ -417,9 +401,7 @@ class CHOCOQuantizationCompressor(object):
         self.aggregator_fn.complete_wait(sync_buffer["sync_reqs"])
 
         for rank, weight in neighbors_info.items():
-            hat_params = neighbor_hat_params[
-                rank if rank in neighbor_hat_params else "memory"
-            ]
+            hat_params = neighbor_hat_params[rank if rank in neighbor_hat_params else "memory"]
             hat_params_memory = neighbor_hat_params["memory"]
 
             # recover correct values/indices.
@@ -529,14 +511,11 @@ class CHOCOSignCompressor(object):
         # uncompress and update.
         for rank, weight in neighbors_info.items():
             # get hat_params of the current rank.
-            hat_params = neighbor_hat_params[
-                rank if rank in neighbor_hat_params else "memory"
-            ]
+            hat_params = neighbor_hat_params[rank if rank in neighbor_hat_params else "memory"]
 
             # recover the message and the corresponding device.
             sync_buffer["flatten_norms"].buffer = comm.recover_device(
-                sync_buffer["synced_flatten_norms"][rank],
-                device=hat_params.buffer.device,
+                sync_buffer["synced_flatten_norms"][rank], device=hat_params.buffer.device
             )
             sync_buffer["flatten_directions"].buffer = self.compressor_fn.uncompress(
                 comm.recover_device(

@@ -30,6 +30,8 @@ def train_and_validate(
     # get the timer.
     timer = conf.timer
 
+    total_bits_sent = 0
+
     # break until finish expected full epoch training.
     print("=>>>> enter the training.\n")
     while True:
@@ -75,19 +77,33 @@ def train_and_validate(
                 # `clip_grad_norm` helps prevent the exploding gradient problem in RNNs / LSTMs.
                 torch.nn.utils.clip_grad_norm_(model.parameters(), conf.rnn_clip)
                 n_bits_to_transmit = optimizer.step(timer=timer)
+                total_bits_sent += n_bits_to_transmit
+
+            # print("bits", n_bits_to_transmit)
 
             # display the logging info.
-            # display_training_stat(conf, scheduler, tracker_tr, n_bits_to_transmit)
 
             # finish one epoch training and to decide if we want to val our model.
-            if scheduler.epoch_ % 1 == 0:
+            if scheduler.epoch_ % conf.eval_freq == 0:
                 log_progress(scheduler.epoch_ / conf.num_epochs)
+
+                display_training_stat(conf, scheduler, tracker_tr, total_bits_sent)
+
                 if tracker_tr.stat["loss"].avg > 1e3 or np.isnan(tracker_tr.stat["loss"].avg):
                     print("\nThe process diverges!!!!!Early stop it.")
                     error_handler.abort()
 
                 # each worker finish one epoch training.
-                do_validate(conf, model, optimizer, criterion, scheduler, metrics, data_loader)
+                do_validate(
+                    conf,
+                    model,
+                    optimizer,
+                    criterion,
+                    scheduler,
+                    metrics,
+                    data_loader,
+                    total_bits_sent,
+                )
 
                 # refresh the logging cache at the begining of each epoch.
                 tracker_tr.reset()
@@ -116,10 +132,14 @@ def inference(conf, model, criterion, metrics, _input, _target, _hidden, tracker
     return loss, _hidden
 
 
-def do_validate(conf, model, optimizer, criterion, scheduler, metrics, data_loader):
+def do_validate(
+    conf, model, optimizer, criterion, scheduler, metrics, data_loader, total_bits_sent
+):
     """Evaluate the model on the test dataset and save to the checkpoint."""
     # wait until the whole group enters this function, and then evaluate.
-    performance = validate(conf, model, optimizer, criterion, scheduler, metrics, data_loader)
+    performance = validate(
+        conf, model, optimizer, criterion, scheduler, metrics, data_loader, total_bits_sent
+    )
 
     # remember best performance and display the val info.
     scheduler.best_tracker.update(performance[0], scheduler.epoch_)
@@ -144,7 +164,7 @@ def do_validate(conf, model, optimizer, criterion, scheduler, metrics, data_load
     print("Finished validation.")
 
 
-def validate(conf, model, optimizer, criterion, scheduler, metrics, data_loader):
+def validate(conf, model, optimizer, criterion, scheduler, metrics, data_loader, total_bits_sent):
     """A function for model evaluation."""
 
     def _evaluate(_model, label):
@@ -178,7 +198,7 @@ def validate(conf, model, optimizer, criterion, scheduler, metrics, data_loader)
                 )
 
         # display the test stat.
-        display_test_stat(conf, scheduler, tracker_te, label)
+        display_test_stat(conf, scheduler, tracker_te, label, bits=total_bits_sent)
 
         # get global (mean) performance
         global_performance = tracker_te.evaluate_global_metrics()
